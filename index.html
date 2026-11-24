@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>いあきゃら → キャラッシュ 変換</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --text: #1f1f1f; --muted: #6b6b6b;
+    --line: #dcd9d2; --accent: #c2410c; --accent-text: #ffffff; --warn-bg: #fff4d6; --warn-text: #6b4a00;
+    --err-bg: #fde2e1; --err-text: #8a1c14;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1b1d; --panel: #26262a; --text: #ececec; --muted: #a0a0a0;
+      --line: #3a3a40; --accent: #f08a4b; --accent-text: #1b1b1d; --warn-bg: #3d3214; --warn-text: #f3d98a;
+      --err-bg: #47201d; --err-text: #f5b5ae;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; line-height: 1.6; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 20px; font-size: .92rem; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .panel h2 { font-size: 1rem; margin: 0 0 8px; }
+  textarea { width: 100%; height: 340px; resize: vertical; padding: 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .8rem; line-height: 1.45; }
+  #in.drag { outline: 2px dashed var(--accent); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  button, .filebtn { font: inherit; font-size: .9rem; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  .hint { color: var(--muted); font-size: .82rem; }
+  .msgs { margin-top: 12px; display: grid; gap: 6px; }
+  .msg { padding: 8px 10px; border-radius: 8px; font-size: .86rem; background: var(--warn-bg); color: var(--warn-text); }
+  .msg.err { background: var(--err-bg); color: var(--err-text); }
+  .files { margin-top: 16px; }
+  .file { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); font-size: .9rem; }
+  .file .name { flex: 1 1 200px; }
+  ol.steps { margin: 16px 0 0; padding-left: 1.3em; font-size: .9rem; color: var(--muted); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>いあきゃら → キャラッシュ 変換</h1>
+  <p class="lead">いあきゃらの「テキスト出力」（クトゥルフ6版）を、キャラッシュの貼り付けインポート用テキストに変換します。データはこのページの中だけで処理し、どこにも送信しません。</p>
+
+  <div class="cols">
+    <section class="panel">
+      <h2>1. いあきゃらのテキスト</h2>
+      <textarea id="in" placeholder="ここに貼り付けるか、.txt ファイルをドロップ（複数可）" spellcheck="false"></textarea>
+      <div class="row">
+        <label class="filebtn">ファイルを選ぶ<input id="file" type="file" accept=".txt,text/plain" multiple hidden></label>
+        <button id="clear">クリア</button>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>2. キャラッシュ用テキスト</h2>
+      <textarea id="out" readonly spellcheck="false" placeholder="変換結果がここに出ます"></textarea>
+      <div class="row">
+        <button id="copy" class="primary" disabled>コピー</button>
+        <button id="save" disabled>.txt で保存</button>
+        <span id="status" class="hint"></span>
+      </div>
+    </section>
+  </div>
+
+  <div id="msgs" class="msgs"></div>
+
+  <section id="files" class="files panel" hidden>
+    <h2>複数ファイルの変換結果</h2>
+    <div class="row"><button id="saveall">すべて保存</button><span class="hint">保存した .txt は、キャラッシュのインポート欄にまとめてドロップできます。</span></div>
+    <div id="filelist"></div>
+  </section>
+
+  <ol class="steps">
+    <li>いあきゃらのマイページで「キャラ出力」→「ファイルに出力」→「テキスト出力」。</li>
+    <li>出てきたテキストを左に貼る（またはファイルをドロップ）。</li>
+    <li>右の結果をコピーして、<a href="https://charash.jp/" target="_blank" rel="noopener">キャラッシュ</a>の「＋新規作成」→「貼り付け」欄に貼り、「インポート」を押す。</li>
+    <li>アイコン画像は移らないので、キャラッシュ側で設定する。</li>
+  </ol>
+</main>
+
+<script>
+/* ===== 変換ロジック（DOM に依存しない） ===== */
+const SKILLS = [
+  ['戦闘技能', [['回避', 'DEX2'], ['投擲', 25], ['キック', 25], ['組みつき', 25], ['こぶし／パンチ', 50], ['頭突き', 10],
+    ['マーシャルアーツ', 1], ['拳銃', 20], ['サブマシンガン', 15], ['ショットガン', 30], ['マシンガン', 15], ['ライフル', 25]]],
+  ['探索技能', [['応急手当', 30], ['鍵開け', 1], ['隠す', 15], ['隠れる', 10], ['聞き耳', 25], ['忍び歩き', 10],
+    ['写真術', 10], ['精神分析', 1], ['追跡', 10], ['登攀', 40], ['図書館', 25], ['目星', 25]]],
+  ['行動技能', [['運転', 20], ['機械修理', 20], ['重機械操作', 1], ['乗馬', 5], ['水泳', 25], ['製作', 5],
+    ['操縦', 1], ['跳躍', 25], ['電気修理', 10], ['ナビゲート', 10], ['変装', 1]]],
+  ['交渉技能', [['言いくるめ', 5], ['信用', 15], ['説得', 15], ['値切り', 5], ['母国語', 'EDU5'], ['ほかの言語', 1]]],
+  ['知識技能', [['医学', 5], ['オカルト', 5], ['化学', 1], ['クトゥルフ神話', 0], ['芸術', 5], ['経理', 10], ['考古学', 1],
+    ['コンピューター', 1], ['心理学', 5], ['人類学', 1], ['生物学', 1], ['地質学', 1], ['電子工学', 1], ['天文学', 1],
+    ['博物学', 10], ['物理学', 1], ['法律', 5], ['薬学', 1], ['歴史', 20]]],
+];
+// いあきゃらの技能名 → キャラッシュの技能名
+const ALIAS = {
+  '組み付き': '組みつき', '組付き': '組みつき',
+  'こぶし（パンチ）': 'こぶし／パンチ', 'こぶし(パンチ)': 'こぶし／パンチ', 'こぶし': 'こぶし／パンチ',
+  '他の言語': 'ほかの言語', 'コンピュータ': 'コンピューター',
+};
+const STD_NAMES = new Set(SKILLS.flatMap(([, list]) => list.map(([n]) => n)));
+const SECTIONS = ['基本情報', 'アイコン', '能力値', '技能値', '武器', '冒険の装備とその他の所持品', '収入と財産', '新たに得た知識・経験', 'メモ'];
+const ABILS = ['STR', 'CON', 'POW', 'DEX', 'APP', 'SIZ', 'INT', 'EDU'];
+
+function damageBonus(sum) {
+  if (sum <= 12) return '-1D6';
+  if (sum <= 16) return '-1D4';
+  if (sum <= 24) return '+0';
+  if (sum <= 32) return '+1D4';
+  if (sum <= 40) return '+1D6';
+  return '+' + (Math.ceil((sum - 40) / 16) + 1) + 'D6';
+}
+function normDB(s) {
+  let v = String(s || '').trim().toUpperCase().replace(/[＋]/g, '+').replace(/[－ー−]/g, '-').replace(/\s+/g, '');
+  if (v === '' ) return '';
+  if (/^0$|^[+-]0$/.test(v)) return '+0';
+  if (/^\d/.test(v)) v = '+' + v;
+  return v;
+}
+// 技能名を「基本名」と「専門」に分ける
+function splitSkillName(raw) {
+  const name = raw.trim();
+  if (ALIAS[name]) return { base: ALIAS[name], spec: '' };
+  if (STD_NAMES.has(name)) return { base: name, spec: '' };
+  const m = name.match(/^(.+?)\s*[（(]\s*(.*?)\s*[)）]$/);
+  if (m) {
+    const base = ALIAS[m[1]] || m[1];
+    if (STD_NAMES.has(base)) return { base, spec: m[2] };
+  }
+  return { base: null, spec: '' };
+}
+function birthdayToCharash(s) {
+  const m = String(s || '').trim().match(/^(\d{1,2})\s*[\/月]\s*(\d{1,2})\s*日?$/);
+  if (!m) return null;
+  const mo = +m[1], d = +m[2];
+  const max = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (mo < 1 || mo > 12 || d < 1 || d > max[mo - 1]) return null;
+  return mo + '月' + d + '日';
+}
+
+function parseIachara(text) {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  const head = (lines.find(l => l.trim() !== '') || '').trim();
+  if (!/^いあきゃらテキスト/.test(head)) throw new Error('いあきゃらのテキスト出力ではないようです（1行目が「いあきゃらテキスト」で始まっていません）。');
+  if (!/6版/.test(head)) throw new Error('このツールはクトゥルフ6版のテキストだけに対応しています（1行目: ' + head + '）。');
+
+  const sec = {}; let cur = null;
+  for (const l of lines) {
+    const m = l.match(/^【(.+)】\s*$/);
+    if (m && cur !== 'メモ' && SECTIONS.includes(m[1])) { cur = m[1]; sec[cur] = []; continue; }
+    if (cur) sec[cur].push(l);
+  }
+
+  // 基本情報
+  const basic = {};
+  for (const l of sec['基本情報'] || []) {
+    for (const part of l.split(/\s+\/\s+|\s+\/$/)) {
+      const m = part.match(/^\s*([^:：]+?)\s*[:：]\s*(.*?)\s*$/);
+      if (m) basic[m[1]] = m[2];
+    }
+  }
+  let name = basic['名前'] || '', kana = '';
+  const nm = name.match(/^(.*?)\s*[（(]([^（()）]*)[)）]\s*$/);
+  if (nm) { name = nm[1].trim(); kana = nm[2].trim(); }
+
+  const icon = ((sec['アイコン'] || []).join('\n').match(/https?:\/\/\S+/) || [''])[0];
+
+  // 能力値
+  const abil = {}, derived = {};
+  let sanCur = null, db = '';
+  for (const l of sec['能力値'] || []) {
+    const m = l.match(/^\s*(\S+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s*$/);
+    if (m) {
+      const row = { cur: +m[2], base: +m[3], inc: +m[4], tmp: +m[5] };
+      if (ABILS.includes(m[1])) abil[m[1]] = row; else derived[m[1]] = row;
+      continue;
+    }
+    const s = l.match(/^\s*正気度\s+(-?\d+)\s*\/\s*(-?\d+)/);
+    if (s) sanCur = +s[1];
+    const d = l.match(/^\s*DB\s+(.+?)\s*$/);
+    if (d) db = d[1];
+  }
+  if (sanCur === null && derived['正気度']) sanCur = derived['正気度'].cur;
+
+  // 技能
+  const skills = []; let cat = null; let jobTotal = null, hobbyTotal = null;
+  for (const l of sec['技能値'] || []) {
+    const c = l.match(/^『(.+)』/);
+    if (c) { cat = c[1]; continue; }
+    const p = l.match(/^(職業|興味)ポイント[:：]\s*(-?\d+)\s*\/\s*(-?\d+)/);
+    if (p) { if (p[1] === '職業') jobTotal = +p[3]; else hobbyTotal = +p[3]; continue; }
+    const m = l.match(/^(\S.*?)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s*$/);
+    if (m && cat) skills.push({ cat, raw: m[1].trim(), total: +m[2], init: +m[3], job: +m[4], hobby: +m[5], grow: +m[6], other: +m[7] });
+  }
+
+  const memoLines = sec['メモ'] || [];
+  return { head, sec, basic, name, kana, icon, abil, derived, sanCur, db, skills, jobTotal, hobbyTotal, memo: memoLines.join('\n').replace(/^\n+|\s+$/g, '') };
+}
+
+// 中身のあるセクションだけ原文を返す（引き継ぎメモ用）
+function leftoverSections(sec) {
+  const out = [];
+  const body = (name) => (sec[name] || []).map(l => l.replace(/\s+$/, ''));
+  const weapons = body('武器').filter(l => l.trim() && !/^名前\s+成功率/.test(l.trim()));
+  if (weapons.length) out.push(['武器', ['名前 / 成功率 / ダメージ / 射程 / 攻撃回数 / 装弾数 / 耐久力 / 故障その他', ...weapons]]);
+  const items = body('冒険の装備とその他の所持品').filter(l => l.trim() && !/^名称\s+単価/.test(l.trim()));
+  if (items.length) out.push(['所持品', ['名称 / 単価 / 個数 / 価格 / 効果、備考など', ...items]]);
+  const money = body('収入と財産').map(l => l.replace(/(年収|財産)undefined/g, '').replace(/\s+$/, ''))
+    .filter(l => /[:：]\s*\S/.test(l));
+  if (money.length) out.push(['収入と財産', money]);
+  const exp = body('新たに得た知識・経験');
+  if (exp.some(l => l.trim() && !/^〈.*〉$/.test(l.trim()))) {
+    const kept = []; let pendingHead = null;
+    for (const l of exp) {
+      if (/^〈.*〉$/.test(l.trim())) { pendingHead = l.trim(); continue; }
+      if (!l.trim()) continue;
+      if (pendingHead) { kept.push(pendingHead); pendingHead = null; }
+      kept.push(l);
+    }
+    out.push(['新たに得た知識・経験', kept]);
+  }
+  return out;
+}
+
+function memoBlock(title, body) {
+  // 本文に「---」だけの行があると囲みが途中で閉じてしまうので置き換える
+  const safe = body.split('\n').map(l => /^-{3,}\s*$/.test(l) ? '－－－' : l).join('\n');
+  return ['---', '【' + title + '】', safe, '---', ''];
+}
+
+function convert(text) {
+  const d = parseIachara(text);
+  const notes = [];
+  const kv = (k, v) => (v === undefined || v === null || v === '') ? k + ':' : k + ': ' + v;
+  const tot = (a) => a ? a.base + a.inc + a.tmp : 0;
+  for (const a of ABILS) if (!d.abil[a]) notes.push('能力値 ' + a + ' が読み取れませんでした（0 として出力）。');
+  const A = Object.fromEntries(ABILS.map(a => [a, d.abil[a] || { cur: 0, base: 0, inc: 0, tmp: 0 }]));
+  const T = Object.fromEntries(ABILS.map(a => [a, tot(A[a])]));
+
+  // --- 基本情報 ---
+  const b = d.basic;
+  const free = [];
+  let birthday = '';
+  if (b['誕生日']) {
+    const conv = birthdayToCharash(b['誕生日']);
+    if (conv) birthday = conv;
+    else { free.push(['誕生日', b['誕生日']]); notes.push('誕生日「' + b['誕生日'] + '」は実在の日付ではないので、誕生日欄ではなく自由項目に入れました。'); }
+  }
+  if (b['肌の色']) free.push(['肌の色', b['肌の色']]);
+  const ageNum = /^\d+$/.test(b['年齢'] || '') ? b['年齢'] : '';
+
+  const L = [];
+  L.push('キャラッシュテキスト v2', 'キャラクターID:', '', '【共通情報】', '', '【基本情報】', '',
+    kv('名前', d.name), kv('なまえ（かな）', d.kana), kv('職業', b['職業']), kv('年齢', b['年齢']), kv('性別', b['性別']),
+    kv('出身', b['出身']), 'ロスト: いいえ', 'イメージカラー:', '年齢の自動算出: いいえ', kv('年齢（参照用）', ageNum), kv('誕生日', birthday), '',
+    '外見的特徴:', '性格:', '経歴:', '関係ある人々:', '好きなもの・嫌いなもの:', '',
+    kv('身長', b['身長']), kv('体重', b['体重']), 'MBTI:', '血液型:', kv('髪の色', b['髪の色']), kv('瞳の色', b['瞳の色']),
+    '一人称:', '二人称:', '口調:', 'セリフ:', '趣味:', 'イメージソング:', '名前の由来:', '');
+  L.push('【タグ】', '');
+  if (b['タグ']) L.push(b['タグ'], '');
+  L.push('【自由項目】', '');
+  if (free.length) { for (const [k, v] of free) L.push(k + ': ' + v); L.push(''); }
+  L.push('【画像（参照用）】', '', '| 番号 | ラベル | URL |', '');
+
+  // --- メモ ---
+  L.push('【共通メモ】', '');
+  if (d.memo) L.push(...memoBlock('メモ', d.memo));
+  const left = leftoverSections(d.sec);
+  const carry = [];
+  for (const [title, body] of left) { carry.push('■' + title, ...body, ''); }
+  if (d.icon) carry.push('■アイコン画像のURL', d.icon, '');
+  if (carry.length) {
+    L.push(...memoBlock('いあきゃらからの引き継ぎ', carry.join('\n').replace(/\s+$/, '')));
+    if (left.length) notes.push('次の欄は表に変換せず、共通メモ「いあきゃらからの引き継ぎ」に原文のまま入れました: ' + left.map(x => x[0]).join('、') + '。');
+  }
+  L.push('【ネタバレ用メモ】', '', '【共通の所持品】', '', '| 名前 | 個数 | 備考 |', '',
+    '【共通の経験の記録】', '', '書物・文献:', '術・呪文:', 'アーティファクト:', '負傷・傷痕など:', '心の傷:', '遭遇した存在:', '',
+    '【セッション記録】', '', '【クトゥルフ6版】', '');
+
+  // --- 能力値 ---
+  L.push('【能力値】', '', '| 能力 | 元の値 | 増減 | その他 | 合計（参照用） |');
+  for (const a of ABILS) L.push(`| ${a} | ${A[a].base} | ${A[a].inc} | ${A[a].tmp} | ${T[a]} |`);
+  L.push('');
+  const auto = (val, calc) => (val === null || val === undefined || val === calc) ? calc + ' @自動' : String(val);
+  const dv = (k) => d.derived[k] ? tot(d.derived[k]) : null;
+  const hpAuto = Math.ceil((T.CON + T.SIZ) / 2);
+  const sanBase = T.POW * 5;
+  const sanCur = d.sanCur === null ? sanBase : d.sanCur;
+  const mythos = d.skills.find(s => s.raw === 'クトゥルフ神話');
+  const dbAuto = damageBonus(T.STR + T.SIZ);
+  const dbIn = normDB(d.db);
+  L.push('HP: ' + auto(dv('HP'), hpAuto), 'MP: ' + auto(dv('MP'), T.POW),
+    'SAN（参照用）: ' + sanCur, 'SAN最大（参照用）: ' + (99 - (mythos ? mythos.total : 0)), 'SAN補正: ' + (sanCur - sanBase),
+    'ダメージボーナス: ' + (dbIn === '' || dbIn === dbAuto ? dbAuto + ' @自動' : dbIn),
+    'アイデア: ' + auto(dv('IDE'), T.INT * 5), '幸運: ' + auto(dv('幸運'), T.POW * 5), '知識: ' + auto(dv('知識'), Math.min(99, T.EDU * 5)), '');
+
+  // --- ポイント ---
+  const jobBase = T.EDU * 20, hobbyBase = T.INT * 10;
+  const jobTotal = d.jobTotal === null ? jobBase : d.jobTotal;
+  const hobbyTotal = d.hobbyTotal === null ? hobbyBase : d.hobbyTotal;
+  L.push('【採用ルールとポイント】', '', '採用ルール: クトゥルフ2010', '職業ポイント計算式: EDU×20',
+    '職業ポイント補正: ' + (jobTotal - jobBase), '職業ポイント総量（参照用）: ' + jobTotal,
+    '興味ポイント補正: ' + (hobbyTotal - hobbyBase), '興味ポイント総量（参照用）: ' + hobbyTotal, '');
+  if (jobTotal !== jobBase) notes.push('職業ポイントの総量が EDU×20 と違うので、差分（' + (jobTotal - jobBase) + '）を「職業ポイント補正」に入れました。');
+  if (hobbyTotal !== hobbyBase) notes.push('興味ポイントの総量が INT×10 と違うので、差分（' + (hobbyTotal - hobbyBase) + '）を「興味ポイント補正」に入れました。');
+
+  // --- 技能 ---
+  const defOf = (def) => def === 'DEX2' ? T.DEX * 2 : def === 'EDU5' ? Math.min(99, T.EDU * 5) : def;
+  const pool = d.skills.map(s => ({ ...s, ...splitSkillName(s.raw), used: false }));
+  const custom = [];
+  L.push('【技能】', '');
+  for (const [cat, list] of SKILLS) {
+    L.push('［' + cat + '］', '', '| 技能名 | 初期値 | 職業P | 興味P | 成長分 | その他 | 合計（参照用） |');
+    for (const [name, def] of list) {
+      const dflt = defOf(def);
+      const s = pool.find(x => !x.used && x.base === name);
+      if (!s) { L.push(`| ${name} | ${dflt} @自動 | 0 | 0 | 0 | 0 | ${dflt} |`); continue; }
+      s.used = true;
+      const label = s.spec ? `${name}（${s.spec}）` : name;
+      const init = s.init === dflt ? `${s.init} @自動` : String(s.init);
+      if (s.init !== dflt) notes.push(`「${label}」の初期値がキャラッシュの標準（${dflt}）と違うので、手入力の値（${s.init}）として出力しました。`);
+      L.push(`| ${label} | ${init} | ${s.job} | ${s.hobby} | ${s.grow} | ${s.other} | ${s.total} |`);
+    }
+    // 標準の枠に収まらなかった技能は独自技能にする
+    for (const s of pool.filter(x => !x.used && x.cat === cat)) {
+      s.used = true;
+      const label = s.base ? (s.spec ? `${s.base}（${s.spec}）` : s.base) : s.raw;
+      custom.push(label);
+      L.push(`| 独自技能：${label.replace(/\|/g, '／')} | ${s.init} | ${s.job} | ${s.hobby} | ${s.grow} | ${s.other} | ${s.total} |`);
+    }
+    L.push('');
+  }
+  const orphan = pool.filter(x => !x.used);
+  if (orphan.length) notes.push('分類が読み取れず出力できなかった技能: ' + orphan.map(x => x.raw).join('、'));
+  if (custom.length) notes.push('標準の技能欄に入らないので独自技能として出力しました: ' + custom.join('、') + '。');
+  if (!d.skills.length) notes.push('技能が1件も読み取れませんでした。テキストが途中で切れていないか確認してください。');
+
+  L.push('【作成の記録】', '', kv('作成時年齢', ageNum), '年齢修正の状態: 未処理', '',
+    '【武器】', '', '| 名称 | 個数 | 備考 | ダメージ | 故障NO | 射程 | 攻撃回数 | 装弾数 | 耐久力 |', '',
+    '【システム別の所持品】', '', '| 名前 | 個数 | 備考 |', '',
+    '【システム別の経験の記録】', '', '書物・文献:', '術・呪文:', 'アーティファクト:', '負傷・傷痕など:', '心の傷:', '遭遇した存在:', '',
+    '【システム別メモ】', '', '---', '【チャットパレット（編集保存分）】', '', '---', '');
+
+  if (d.icon) notes.push('アイコン画像は移行されません。URLは共通メモ「いあきゃらからの引き継ぎ」に書いてあります。');
+  return { name: d.name || '名前なし', text: L.join('\n'), notes };
+}
+
+if (typeof module !== 'undefined') module.exports = { convert, parseIachara };
+
+/* ===== 画面 ===== */
+if (typeof document !== 'undefined') {
+  const $ = (id) => document.getElementById(id);
+  const inEl = $('in'), outEl = $('out'), msgs = $('msgs');
+  let current = null, batch = [];
+
+  const showMsgs = (notes, err) => {
+    msgs.textContent = '';
+    if (err) { const p = document.createElement('div'); p.className = 'msg err'; p.textContent = err; msgs.appendChild(p); }
+    for (const n of notes || []) { const p = document.createElement('div'); p.className = 'msg'; p.textContent = n; msgs.appendChild(p); }
+  };
+  const run = () => {
+    const src = inEl.value;
+    $('status').textContent = '';
+    if (!src.trim()) { current = null; outEl.value = ''; showMsgs([]); $('copy').disabled = $('save').disabled = true; return; }
+    try {
+      current = convert(src);
+      outEl.value = current.text;
+      showMsgs(current.notes);
+      $('copy').disabled = $('save').disabled = false;
+    } catch (e) {
+      current = null; outEl.value = ''; showMsgs([], e.message);
+      $('copy').disabled = $('save').disabled = true;
+    }
+  };
+  const download = (name, text) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+    a.download = name.replace(/[\\/:*?"<>|]/g, '_') + '（キャラッシュ用）.txt';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const copy = async (text, statusEl) => {
+    try { await navigator.clipboard.writeText(text); }
+    catch { outEl.focus(); outEl.select(); document.execCommand('copy'); }
+    if (statusEl) { statusEl.textContent = 'コピーしました'; setTimeout(() => { statusEl.textContent = ''; }, 2000); }
+  };
+  const loadFiles = async (files) => {
+    const list = [...files];
+    if (!list.length) return;
+    const texts = await Promise.all(list.map(f => f.text()));
+    inEl.value = texts[0]; run();
+    batch = [];
+    $('filelist').textContent = '';
+    if (list.length < 2) { $('files').hidden = true; return; }
+    $('files').hidden = false;
+    list.forEach((f, i) => {
+      const row = document.createElement('div'); row.className = 'file';
+      const nm = document.createElement('span'); nm.className = 'name';
+      row.appendChild(nm);
+      try {
+        const r = convert(texts[i]); batch.push(r);
+        nm.textContent = r.name + (r.notes.length ? '（注意 ' + r.notes.length + ' 件）' : '');
+        const st = document.createElement('span'); st.className = 'hint';
+        const show = document.createElement('button'); show.textContent = '表示';
+        show.onclick = () => { inEl.value = texts[i]; run(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+        const cp = document.createElement('button'); cp.textContent = 'コピー'; cp.onclick = () => copy(r.text, st);
+        const sv = document.createElement('button'); sv.textContent = '保存'; sv.onclick = () => download(r.name, r.text);
+        row.append(show, cp, sv, st);
+      } catch (e) {
+        nm.textContent = f.name + ': ' + e.message;
+        nm.style.color = 'var(--err-text)';
+      }
+      $('filelist').appendChild(row);
+    });
+  };
+
+  inEl.addEventListener('input', run);
+  $('clear').onclick = () => { inEl.value = ''; batch = []; $('files').hidden = true; run(); };
+  $('copy').onclick = () => current && copy(current.text, $('status'));
+  $('save').onclick = () => current && download(current.name, current.text);
+  $('saveall').onclick = () => batch.forEach((r, i) => setTimeout(() => download(r.name, r.text), i * 300));
+  $('file').onchange = (e) => { loadFiles(e.target.files); e.target.value = ''; };
+  inEl.addEventListener('dragover', (e) => { e.preventDefault(); inEl.classList.add('drag'); });
+  inEl.addEventListener('dragleave', () => inEl.classList.remove('drag'));
+  inEl.addEventListener('drop', (e) => {
+    inEl.classList.remove('drag');
+    if (e.dataTransfer.files.length) { e.preventDefault(); loadFiles(e.dataTransfer.files); }
+  });
+}
+</script>
+</body>
+</html>
