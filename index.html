@@ -50,7 +50,7 @@
 <body>
 <main>
   <h1>いあきゃら → キャラッシュ 変換</h1>
-  <p class="lead">いあきゃらの「テキスト出力」（クトゥルフ6版）を、キャラッシュの貼り付けインポート用テキストに変換します。データはこのページの中だけで処理し、どこにも送信しません。</p>
+  <p class="lead">いあきゃらの「テキスト出力」（クトゥルフ6版・7版）を、キャラッシュの貼り付けインポート用テキストに変換します。データはこのページの中だけで処理し、どこにも送信しません。</p>
 
   <div class="cols">
     <section class="panel">
@@ -90,29 +90,72 @@
 
 <script>
 /* ===== 変換ロジック（DOM に依存しない） ===== */
-const SKILLS = [
-  ['戦闘技能', [['回避', 'DEX2'], ['投擲', 25], ['キック', 25], ['組みつき', 25], ['こぶし／パンチ', 50], ['頭突き', 10],
-    ['マーシャルアーツ', 1], ['拳銃', 20], ['サブマシンガン', 15], ['ショットガン', 30], ['マシンガン', 15], ['ライフル', 25]]],
-  ['探索技能', [['応急手当', 30], ['鍵開け', 1], ['隠す', 15], ['隠れる', 10], ['聞き耳', 25], ['忍び歩き', 10],
-    ['写真術', 10], ['精神分析', 1], ['追跡', 10], ['登攀', 40], ['図書館', 25], ['目星', 25]]],
-  ['行動技能', [['運転', 20], ['機械修理', 20], ['重機械操作', 1], ['乗馬', 5], ['水泳', 25], ['製作', 5],
-    ['操縦', 1], ['跳躍', 25], ['電気修理', 10], ['ナビゲート', 10], ['変装', 1]]],
-  ['交渉技能', [['言いくるめ', 5], ['信用', 15], ['説得', 15], ['値切り', 5], ['母国語', 'EDU5'], ['ほかの言語', 1]]],
-  ['知識技能', [['医学', 5], ['オカルト', 5], ['化学', 1], ['クトゥルフ神話', 0], ['芸術', 5], ['経理', 10], ['考古学', 1],
-    ['コンピューター', 1], ['心理学', 5], ['人類学', 1], ['生物学', 1], ['地質学', 1], ['電子工学', 1], ['天文学', 1],
-    ['博物学', 10], ['物理学', 1], ['法律', 5], ['薬学', 1], ['歴史', 20]]],
-];
-// いあきゃらの技能名 → キャラッシュの技能名
-const ALIAS = {
-  '組み付き': '組みつき', '組付き': '組みつき',
-  'こぶし（パンチ）': 'こぶし／パンチ', 'こぶし(パンチ)': 'こぶし／パンチ', 'こぶし': 'こぶし／パンチ',
-  '他の言語': 'ほかの言語', 'コンピュータ': 'コンピューター',
-};
-const STD_NAMES = new Set(SKILLS.flatMap(([, list]) => list.map(([n]) => n)));
-const SECTIONS = ['基本情報', 'アイコン', '能力値', '技能値', '武器', '冒険の装備とその他の所持品', '収入と財産', '新たに得た知識・経験', 'メモ'];
 const ABILS = ['STR', 'CON', 'POW', 'DEX', 'APP', 'SIZ', 'INT', 'EDU'];
 
-function damageBonus(sum) {
+// 版ごとの設定。技能はキャラッシュの並び順で、値はキャラッシュが自動で入れる初期値。
+// 文字列の初期値は能力値から計算する（DEX2: DEX×2、DEXH: DEX÷2、EDU5: EDU×5、EDU: EDU）。
+// 「近接戦闘（格闘）」のように専門付きで書いた行は、専門なしで書かれた技能をその専門として扱う。
+const EDITIONS = {
+  6: {
+    label: 'クトゥルフ6版',
+    sections: ['基本情報', 'アイコン', '能力値', '技能値', '武器', '冒険の装備とその他の所持品', '収入と財産', '新たに得た知識・経験', 'メモ'],
+    skills: [
+      ['戦闘技能', [['回避', 'DEX2'], ['投擲', 25], ['キック', 25], ['組みつき', 25], ['こぶし／パンチ', 50], ['頭突き', 10],
+        ['マーシャルアーツ', 1], ['拳銃', 20], ['サブマシンガン', 15], ['ショットガン', 30], ['マシンガン', 15], ['ライフル', 25]]],
+      ['探索技能', [['応急手当', 30], ['鍵開け', 1], ['隠す', 15], ['隠れる', 10], ['聞き耳', 25], ['忍び歩き', 10],
+        ['写真術', 10], ['精神分析', 1], ['追跡', 10], ['登攀', 40], ['図書館', 25], ['目星', 25]]],
+      ['行動技能', [['運転', 20], ['機械修理', 20], ['重機械操作', 1], ['乗馬', 5], ['水泳', 25], ['製作', 5],
+        ['操縦', 1], ['跳躍', 25], ['電気修理', 10], ['ナビゲート', 10], ['変装', 1]]],
+      ['交渉技能', [['言いくるめ', 5], ['信用', 15], ['説得', 15], ['値切り', 5], ['母国語', 'EDU5'], ['ほかの言語', 1]]],
+      ['知識技能', [['医学', 5], ['オカルト', 5], ['化学', 1], ['クトゥルフ神話', 0], ['芸術', 5], ['経理', 10], ['考古学', 1],
+        ['コンピューター', 1], ['心理学', 5], ['人類学', 1], ['生物学', 1], ['地質学', 1], ['電子工学', 1], ['天文学', 1],
+        ['博物学', 10], ['物理学', 1], ['法律', 5], ['薬学', 1], ['歴史', 20]]],
+    ],
+    // いあきゃらの技能名 → キャラッシュの技能名
+    alias: {
+      '組み付き': '組みつき', '組付き': '組みつき',
+      'こぶし（パンチ）': 'こぶし／パンチ', 'こぶし(パンチ)': 'こぶし／パンチ', 'こぶし': 'こぶし／パンチ',
+      '他の言語': 'ほかの言語', '外国語': 'ほかの言語', '言語': 'ほかの言語', 'コンピュータ': 'コンピューター',
+    },
+    specInit: {},
+  },
+  7: {
+    label: 'クトゥルフ7版',
+    sections: ['基本情報', 'アイコン', '能力値', '技能値', '武器', '装備と所持品', '収入と財産', 'バックストーリー', '通過したシナリオ名', 'メモ'],
+    skills: [
+      ['戦闘技能', [['回避', 'DEXH'], ['近接戦闘（格闘）', 25], ['投擲', 20], ['射撃', 0], ['爆破', 1], ['砲', 1]]],
+      ['探索技能', [['応急手当', 30], ['鍵開け', 1], ['手さばき', 10], ['聞き耳', 20], ['隠密', 20], ['精神分析', 1],
+        ['追跡', 10], ['登攀', 20], ['図書館', 20], ['目星', 25], ['鑑定', 5], ['読唇術', 1]]],
+      ['行動技能', [['運転', 20], ['機械修理', 10], ['重機械操作', 1], ['乗馬', 5], ['水泳', 20], ['芸術/製作', 5],
+        ['操縦', 1], ['跳躍', 20], ['電気修理', 10], ['ナビゲート', 10], ['変装', 5], ['ダイビング', 1], ['動物使い', 5]]],
+      ['交渉技能', [['言いくるめ', 5], ['信用', 0], ['説得', 10], ['母国語', 'EDU'], ['ほかの言語', 1], ['威圧', 15], ['魅惑', 15]]],
+      ['知識技能', [['医学', 1], ['オカルト', 5], ['クトゥルフ神話', 0], ['経理', 5], ['考古学', 1], ['コンピューター', 5],
+        ['科学', 1], ['心理学', 10], ['人類学', 1], ['電子工学', 1], ['自然', 10], ['法律', 5], ['歴史', 5],
+        ['サバイバル', 10], ['伝承', 1], ['ヒプノーシス', 1]]],
+    ],
+    alias: {
+      '拳銃': '射撃（拳銃）', '言語': 'ほかの言語', '外国語': 'ほかの言語', '他の言語': 'ほかの言語',
+      '芸術': '芸術/製作', '製作': '芸術/製作', '制作': '芸術/製作', '芸術／製作': '芸術/製作', 'コンピュータ': 'コンピューター',
+    },
+    // 専門によって初期値が変わる技能
+    specInit: {
+      '射撃': { '拳銃': 20, 'ライフル/ショットガン': 25, 'サブマシンガン': 15, '弓': 15, '火炎放射器': 10, '重火器': 10, '機関銃': 10 },
+      '近接戦闘': { '格闘': 25, '斧': 15, '刀剣': 20, '絞殺ひも': 15, 'チェーンソー': 10, '槍': 20, '鞭': 5, 'フレイル': 10 },
+    },
+  },
+};
+for (const ed of Object.values(EDITIONS)) {
+  ed.rows = ed.skills.map(([cat, list]) => [cat, list.map(([name, def]) => ({ name, def, ...splitParen(name) }))]);
+  ed.bases = new Set(ed.rows.flatMap(([, list]) => list.map(r => r.base)));
+}
+
+function splitParen(name) {
+  const m = name.match(/^(.+?)\s*[（(](.*)[)）]$/);
+  return m ? { base: m[1].trim(), spec: m[2].trim() } : { base: name.trim(), spec: '' };
+}
+
+// 6版のダメージボーナス（STR+SIZ）
+function damageBonus6(sum) {
   if (sum <= 12) return '-1D6';
   if (sum <= 16) return '-1D4';
   if (sum <= 24) return '+0';
@@ -120,24 +163,44 @@ function damageBonus(sum) {
   if (sum <= 40) return '+1D6';
   return '+' + (Math.ceil((sum - 40) / 16) + 1) + 'D6';
 }
+// 7版のダメージボーナスとビルド（STR+SIZ）
+function damageBonus7(sum) {
+  if (sum <= 64) return ['-2', -2];
+  if (sum <= 84) return ['-1', -1];
+  if (sum <= 124) return ['+0', 0];
+  if (sum <= 164) return ['+1D4', 1];
+  if (sum <= 204) return ['+1D6', 2];
+  const k = Math.ceil((sum - 204) / 80);
+  return ['+' + (k + 1) + 'D6', k + 2];
+}
+function moveRate7(str, dex, siz) {
+  if (str < siz && dex < siz) return 7;
+  if (str > siz && dex > siz) return 9;
+  return 8;
+}
 function normDB(s) {
   let v = String(s || '').trim().toUpperCase().replace(/[＋]/g, '+').replace(/[－ー−]/g, '-').replace(/\s+/g, '');
-  if (v === '' ) return '';
+  if (v === '') return '';
   if (/^0$|^[+-]0$/.test(v)) return '+0';
   if (/^\d/.test(v)) v = '+' + v;
   return v;
 }
-// 技能名を「基本名」と「専門」に分ける
-function splitSkillName(raw) {
+
+// 技能名を、キャラッシュの「基本名」と「専門」に分ける。基本名が分からなければ base: null。
+function splitSkillName(raw, ed) {
   const name = raw.trim();
-  if (ALIAS[name]) return { base: ALIAS[name], spec: '' };
-  if (STD_NAMES.has(name)) return { base: name, spec: '' };
-  const m = name.match(/^(.+?)\s*[（(]\s*(.*?)\s*[)）]$/);
-  if (m) {
-    const base = ALIAS[m[1]] || m[1];
-    if (STD_NAMES.has(base)) return { base, spec: m[2] };
-  }
-  return { base: null, spec: '' };
+  const resolve = (base, spec) => {
+    const to = ed.alias[base];
+    if (to) { const t = splitParen(to); base = t.base; spec = spec || t.spec; }
+    if (ed.bases.has(base)) return { base, spec };
+    // 「英語」のような言語名だけの技能は、ほかの言語の専門として扱う
+    if (!spec && /語$/.test(base) && base !== '母国語') return { base: 'ほかの言語', spec: base };
+    return null;
+  };
+  return (ed.alias[name] && resolve(name, ''))
+    || resolve(splitParen(name).base, splitParen(name).spec)
+    || resolve(name, '')
+    || { base: null, spec: '' };
 }
 function birthdayToCharash(s) {
   const m = String(s || '').trim().match(/^(\d{1,2})\s*[\/月]\s*(\d{1,2})\s*日?$/);
@@ -147,17 +210,27 @@ function birthdayToCharash(s) {
   if (mo < 1 || mo > 12 || d < 1 || d > max[mo - 1]) return null;
   return mo + '月' + d + '日';
 }
+const trimBlank = (lines) => {
+  const a = lines.map(l => l.replace(/\s+$/, ''));
+  while (a.length && !a[0].trim()) a.shift();
+  while (a.length && !a[a.length - 1].trim()) a.pop();
+  return a;
+};
 
 function parseIachara(text) {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const head = (lines.find(l => l.trim() !== '') || '').trim();
   if (!/^いあきゃらテキスト/.test(head)) throw new Error('いあきゃらのテキスト出力ではないようです（1行目が「いあきゃらテキスト」で始まっていません）。');
-  if (!/6版/.test(head)) throw new Error('このツールはクトゥルフ6版のテキストだけに対応しています（1行目: ' + head + '）。');
+  const v = (head.match(/([67])版/) || [])[1];
+  if (!v) throw new Error('このツールはクトゥルフ6版・7版のテキストに対応しています（1行目: ' + head + '）。');
+  const ed = EDITIONS[v];
 
-  const sec = {}; let cur = null;
+  // 見出しは決まった順に並ぶので、前に進む向きの見出しだけを区切りとみなす（メモ中の【】を見出しと取り違えないため）
+  const sec = {}; let cur = null, curIdx = -1;
   for (const l of lines) {
     const m = l.match(/^【(.+)】\s*$/);
-    if (m && cur !== 'メモ' && SECTIONS.includes(m[1])) { cur = m[1]; sec[cur] = []; continue; }
+    const idx = m ? ed.sections.indexOf(m[1]) : -1;
+    if (idx > curIdx) { cur = m[1]; curIdx = idx; sec[cur] = []; continue; }
     if (cur) sec[cur].push(l);
   }
 
@@ -169,15 +242,19 @@ function parseIachara(text) {
       if (m) basic[m[1]] = m[2];
     }
   }
-  let name = basic['名前'] || '', kana = '';
-  const nm = name.match(/^(.*?)\s*[（(]([^（()）]*)[)）]\s*$/);
-  if (nm) { name = nm[1].trim(); kana = nm[2].trim(); }
+  // 「名前 (かな)」。名前欄にもかなを書いていると「九条 直 (くじょう なお) ()」になるので、空のかっこは外して読み直す
+  let name = (basic['名前'] || '').trim(), kana = '';
+  for (let i = 0; i < 2 && !kana; i++) {
+    const nm = name.match(/^(.*?)\s*[（(]([^（()）]*)[)）]\s*$/);
+    if (!nm) break;
+    name = nm[1].trim(); kana = nm[2].trim();
+  }
 
-  const icon = ((sec['アイコン'] || []).join('\n').match(/https?:\/\/\S+/) || [''])[0];
+  const icons = (sec['アイコン'] || []).join('\n').match(/https?:\/\/\S+/g) || [];
 
   // 能力値
   const abil = {}, derived = {};
-  let sanCur = null, db = '';
+  let sanCur = null, db = '', bld = null, mov = null;
   for (const l of sec['能力値'] || []) {
     const m = l.match(/^\s*(\S+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s*$/);
     if (m) {
@@ -185,10 +262,11 @@ function parseIachara(text) {
       if (ABILS.includes(m[1])) abil[m[1]] = row; else derived[m[1]] = row;
       continue;
     }
-    const s = l.match(/^\s*正気度\s+(-?\d+)\s*\/\s*(-?\d+)/);
-    if (s) sanCur = +s[1];
-    const d = l.match(/^\s*DB\s+(.+?)\s*$/);
-    if (d) db = d[1];
+    let x;
+    if ((x = l.match(/^\s*正気度\s+(-?\d+)\s*\/\s*(-?\d+)/))) sanCur = +x[1];
+    else if ((x = l.match(/^\s*DB\s+(.+?)\s*$/))) db = x[1];
+    else if ((x = l.match(/^\s*BLD\s+(-?\d+)\s*$/))) bld = +x[1];
+    else if ((x = l.match(/^\s*MOV\s+(-?\d+)\s*$/))) mov = +x[1];
   }
   if (sanCur === null && derived['正気度']) sanCur = derived['正気度'].cur;
 
@@ -203,22 +281,27 @@ function parseIachara(text) {
     if (m && cat) skills.push({ cat, raw: m[1].trim(), total: +m[2], init: +m[3], job: +m[4], hobby: +m[5], grow: +m[6], other: +m[7] });
   }
 
-  const memoLines = sec['メモ'] || [];
-  return { head, sec, basic, name, kana, icon, abil, derived, sanCur, db, skills, jobTotal, hobbyTotal, memo: memoLines.join('\n').replace(/^\n+|\s+$/g, '') };
+  return {
+    head, v, ed, sec, basic, name, kana, icons, abil, derived, sanCur, db, bld, mov, skills, jobTotal, hobbyTotal,
+    memo: trimBlank(sec['メモ'] || []).join('\n'),
+  };
 }
 
-// 中身のあるセクションだけ原文を返す（引き継ぎメモ用）
-function leftoverSections(sec) {
+// 表として読めない欄（武器・所持品など）から、中身のある行だけを拾う
+function tableRows(lines, headRe) {
+  return (lines || []).map(l => l.replace(/\s+$/, ''))
+    .filter(l => l.trim() && !headRe.test(l.trim()) && !/^[\s0]*$/.test(l));
+}
+function leftover6(sec) {
   const out = [];
-  const body = (name) => (sec[name] || []).map(l => l.replace(/\s+$/, ''));
-  const weapons = body('武器').filter(l => l.trim() && !/^名前\s+成功率/.test(l.trim()));
+  const weapons = tableRows(sec['武器'], /^名前\s+成功率/);
   if (weapons.length) out.push(['武器', ['名前 / 成功率 / ダメージ / 射程 / 攻撃回数 / 装弾数 / 耐久力 / 故障その他', ...weapons]]);
-  const items = body('冒険の装備とその他の所持品').filter(l => l.trim() && !/^名称\s+単価/.test(l.trim()));
+  const items = tableRows(sec['冒険の装備とその他の所持品'], /^名称\s+単価/);
   if (items.length) out.push(['所持品', ['名称 / 単価 / 個数 / 価格 / 効果、備考など', ...items]]);
-  const money = body('収入と財産').map(l => l.replace(/(年収|財産)undefined/g, '').replace(/\s+$/, ''))
+  const money = (sec['収入と財産'] || []).map(l => l.replace(/(年収|財産)undefined/g, '').replace(/\s+$/, ''))
     .filter(l => /[:：]\s*\S/.test(l));
   if (money.length) out.push(['収入と財産', money]);
-  const exp = body('新たに得た知識・経験');
+  const exp = sec['新たに得た知識・経験'] || [];
   if (exp.some(l => l.trim() && !/^〈.*〉$/.test(l.trim()))) {
     const kept = []; let pendingHead = null;
     for (const l of exp) {
@@ -232,7 +315,44 @@ function leftoverSections(sec) {
   return out;
 }
 
-function memoBlock(title, body) {
+// 7版のバックストーリー。キャラッシュの項目名へ対応づける。
+const BACKSTORY7 = {
+  '容姿の描写': '容姿の描写', 'イデオロギー/信念': 'イデオロギー / 信念', '重要な人々': '重要な人々',
+  '意味のある場所': '意味のある場所', '秘蔵の品': '秘蔵の品', '特徴': '特徴', '負傷、傷跡': '負傷、傷跡', '恐怖症、マニア': '恐怖症、マニア',
+};
+const EXPERIENCE7 = ['魔導書、呪文、アーティファクト', '遭遇した超自然の存在'];
+function parseBackstory7(lines) {
+  const blocks = []; const extra = []; let cur = null; const pre = [];
+  const keyOf = (s) => s.replace(/\s*\/\s*/g, '/').replace(/\s+/g, '');
+  for (const l of lines || []) {
+    const m = l.match(/^\[(★?)\s*(.+?)\s*\]\s*$/);
+    const key = m ? keyOf(m[2]) : '';
+    if (m && (BACKSTORY7[key] || EXPERIENCE7.includes(key))) {
+      cur = { key, star: !!m[1], body: [] };
+      (BACKSTORY7[key] ? blocks : extra).push(cur);
+      continue;
+    }
+    (cur ? cur.body : pre).push(l);
+  }
+  const fin = (b) => ({ ...b, body: trimBlank(b.body).join('\n') });
+  return {
+    blocks: blocks.map(fin).filter(b => b.body),
+    extra: extra.map(fin).filter(b => b.body),
+    pre: trimBlank(pre).join('\n'),
+  };
+}
+function parseScenarios7(lines) {
+  const list = []; const loose = []; let cur = null;
+  for (const l of lines || []) {
+    const m = l.match(/^\[(.+)\]\s*$/);
+    if (m) { cur = { name: m[1].trim(), notes: [] }; list.push(cur); continue; }
+    (cur ? cur.notes : loose).push(l);
+  }
+  return { list: list.map(s => ({ ...s, notes: trimBlank(s.notes).join('\n') })), loose: trimBlank(loose).join('\n') };
+}
+
+// 「---」で囲む欄（メモ・バックストーリーなど）
+function fence(title, body) {
   // 本文に「---」だけの行があると囲みが途中で閉じてしまうので置き換える
   const safe = body.split('\n').map(l => /^-{3,}\s*$/.test(l) ? '－－－' : l).join('\n');
   return ['---', '【' + title + '】', safe, '---', ''];
@@ -240,15 +360,41 @@ function memoBlock(title, body) {
 
 function convert(text) {
   const d = parseIachara(text);
+  const ed = d.ed, is7 = d.v === '7';
   const notes = [];
   const kv = (k, v) => (v === undefined || v === null || v === '') ? k + ':' : k + ': ' + v;
   const tot = (a) => a ? a.base + a.inc + a.tmp : 0;
   for (const a of ABILS) if (!d.abil[a]) notes.push('能力値 ' + a + ' が読み取れませんでした（0 として出力）。');
   const A = Object.fromEntries(ABILS.map(a => [a, d.abil[a] || { cur: 0, base: 0, inc: 0, tmp: 0 }]));
   const T = Object.fromEntries(ABILS.map(a => [a, tot(A[a])]));
-
-  // --- 基本情報 ---
+  const dv = (k) => d.derived[k] ? tot(d.derived[k]) : null;
+  const auto = (val, calc) => (val === null || val === undefined || val === calc) ? calc + ' @自動' : String(val);
   const b = d.basic;
+  const ageNum = /^\d+$/.test(b['年齢'] || '') ? b['年齢'] : '';
+
+  // 表に入らない欄は、共通メモ「いあきゃらからの引き継ぎ」に原文で残す
+  const carry = []; const carriedNames = [];
+  const addCarry = (title, body) => { carry.push('■' + title, ...[].concat(body), ''); carriedNames.push(title); };
+  let backstory = null, scenarios = { list: [], loose: '' };
+  if (is7) {
+    const w = tableRows(d.sec['武器'], /^名前\s+成功率/);
+    if (w.length) addCarry('武器', ['名前 / 成功率 / ダメージ / 射程 / 攻撃回数 / 装弾数 / 耐久力 / 故障その他', ...w]);
+    const it = tableRows(d.sec['装備と所持品'], /^名称\s+単価/);
+    if (it.length) addCarry('装備と所持品', ['名称 / 単価 / 個数 / 価格 / 効果、備考など', ...it]);
+    const money = (d.sec['収入と財産'] || []).map(l => l.replace(/\s+$/, ''))
+      .filter(l => { const m = l.match(/^[^:：]+[:：]\s*(.*)$/); return m && !/^(借金[:：]\s*)?0?$/.test(m[1].trim()); });
+    if (money.length) addCarry('収入と財産', money);
+    backstory = parseBackstory7(d.sec['バックストーリー']);
+    if (backstory.pre) addCarry('バックストーリー（項目名なし）', backstory.pre);
+    for (const x of backstory.extra) addCarry(x.key, x.body);
+    scenarios = parseScenarios7(d.sec['通過したシナリオ名']);
+    if (scenarios.loose) addCarry('通過したシナリオ名', scenarios.loose);
+  } else {
+    for (const [title, body] of leftover6(d.sec)) addCarry(title, body);
+  }
+  if (d.icons.length) carry.push('■アイコン画像のURL', ...d.icons, '');
+
+  // --- 共通情報 ---
   const free = [];
   let birthday = '';
   if (b['誕生日']) {
@@ -257,7 +403,6 @@ function convert(text) {
     else { free.push(['誕生日', b['誕生日']]); notes.push('誕生日「' + b['誕生日'] + '」は実在の日付ではないので、誕生日欄ではなく自由項目に入れました。'); }
   }
   if (b['肌の色']) free.push(['肌の色', b['肌の色']]);
-  const ageNum = /^\d+$/.test(b['年齢'] || '') ? b['年齢'] : '';
 
   const L = [];
   L.push('キャラッシュテキスト v2', 'キャラクターID:', '', '【共通情報】', '', '【基本情報】', '',
@@ -271,88 +416,122 @@ function convert(text) {
   L.push('【自由項目】', '');
   if (free.length) { for (const [k, v] of free) L.push(k + ': ' + v); L.push(''); }
   L.push('【画像（参照用）】', '', '| 番号 | ラベル | URL |', '');
-
-  // --- メモ ---
   L.push('【共通メモ】', '');
-  if (d.memo) L.push(...memoBlock('メモ', d.memo));
-  const left = leftoverSections(d.sec);
-  const carry = [];
-  for (const [title, body] of left) { carry.push('■' + title, ...body, ''); }
-  if (d.icon) carry.push('■アイコン画像のURL', d.icon, '');
-  if (carry.length) {
-    L.push(...memoBlock('いあきゃらからの引き継ぎ', carry.join('\n').replace(/\s+$/, '')));
-    if (left.length) notes.push('次の欄は表に変換せず、共通メモ「いあきゃらからの引き継ぎ」に原文のまま入れました: ' + left.map(x => x[0]).join('、') + '。');
-  }
+  if (d.memo) L.push(...fence('メモ', d.memo));
+  if (carry.length) L.push(...fence('いあきゃらからの引き継ぎ', carry.join('\n').replace(/\s+$/, '')));
+  if (carriedNames.length) notes.push('次の欄は表に変換せず、共通メモ「いあきゃらからの引き継ぎ」に原文のまま入れました: ' + carriedNames.join('、') + '。');
   L.push('【ネタバレ用メモ】', '', '【共通の所持品】', '', '| 名前 | 個数 | 備考 |', '',
     '【共通の経験の記録】', '', '書物・文献:', '術・呪文:', 'アーティファクト:', '負傷・傷痕など:', '心の傷:', '遭遇した存在:', '',
-    '【セッション記録】', '', '【クトゥルフ6版】', '');
+    '【セッション記録】', '');
+  for (const s of scenarios.list) {
+    L.push('［' + s.name.replace(/[［］]/g, '') + '］', '', '開始日:', '終了日:', 'GM:', '同卓メンバー:', 'システム: ' + ed.label, 'URL:', 'URLを公開: はい', '');
+    if (s.notes) L.push(...fence('ひとことメモ', s.notes));
+  }
+  if (scenarios.list.length) notes.push('通過したシナリオ ' + scenarios.list.length + ' 件を、キャラッシュのセッション記録に入れました（日付やGMは空欄です）。');
+  L.push('【' + ed.label + '】', '');
 
   // --- 能力値 ---
   L.push('【能力値】', '', '| 能力 | 元の値 | 増減 | その他 | 合計（参照用） |');
   for (const a of ABILS) L.push(`| ${a} | ${A[a].base} | ${A[a].inc} | ${A[a].tmp} | ${T[a]} |`);
   L.push('');
-  const auto = (val, calc) => (val === null || val === undefined || val === calc) ? calc + ' @自動' : String(val);
-  const dv = (k) => d.derived[k] ? tot(d.derived[k]) : null;
-  const hpAuto = Math.ceil((T.CON + T.SIZ) / 2);
-  const sanBase = T.POW * 5;
-  const sanCur = d.sanCur === null ? sanBase : d.sanCur;
   const mythos = d.skills.find(s => s.raw === 'クトゥルフ神話');
-  const dbAuto = damageBonus(T.STR + T.SIZ);
+  const sanMax = 99 - (mythos ? mythos.total : 0);
   const dbIn = normDB(d.db);
-  L.push('HP: ' + auto(dv('HP'), hpAuto), 'MP: ' + auto(dv('MP'), T.POW),
-    'SAN（参照用）: ' + sanCur, 'SAN最大（参照用）: ' + (99 - (mythos ? mythos.total : 0)), 'SAN補正: ' + (sanCur - sanBase),
-    'ダメージボーナス: ' + (dbIn === '' || dbIn === dbAuto ? dbAuto + ' @自動' : dbIn),
-    'アイデア: ' + auto(dv('IDE'), T.INT * 5), '幸運: ' + auto(dv('幸運'), T.POW * 5), '知識: ' + auto(dv('知識'), Math.min(99, T.EDU * 5)), '');
+  let jobBase, hobbyBase;
+  if (is7) {
+    const sanCur = d.sanCur === null ? T.POW : d.sanCur;
+    const [dbAuto, bldAuto] = damageBonus7(T.STR + T.SIZ);
+    const movBase = moveRate7(T.STR, T.DEX, T.SIZ);
+    const mov = d.mov === null ? movBase : d.mov;
+    const luck = d.derived['幸運'] ? d.derived['幸運'].cur : null;
+    if (luck === null) notes.push('幸運が読み取れませんでした（0 として出力）。');
+    L.push('HP: ' + auto(dv('HP'), Math.floor((T.CON + T.SIZ) / 10)), 'MP: ' + auto(dv('MP'), Math.floor(T.POW / 5)),
+      'SAN（参照用）: ' + sanCur, 'SAN最大（参照用）: ' + sanMax, 'SAN補正: ' + (sanCur - T.POW),
+      'ダメージボーナス: ' + (dbIn === '' || dbIn === dbAuto ? dbAuto + ' @自動' : dbIn),
+      '幸運: ' + (luck === null ? 0 : luck),
+      'MOV（参照用）: ' + mov, 'MOV増減: ' + (mov - movBase), 'MOVその他: 0',
+      'ビルド: ' + (d.bld === null || d.bld === bldAuto ? bldAuto + ' @自動' : d.bld), '');
+    if (+ageNum >= 40) notes.push('40歳以上なので、キャラッシュ側でMOVの年齢修正が二重にかかっていないか確認してください（いあきゃらのMOVは ' + mov + '）。');
+    jobBase = T.EDU * 4; hobbyBase = T.INT * 2;
+  } else {
+    const sanBase = T.POW * 5;
+    const sanCur = d.sanCur === null ? sanBase : d.sanCur;
+    const dbAuto = damageBonus6(T.STR + T.SIZ);
+    L.push('HP: ' + auto(dv('HP'), Math.ceil((T.CON + T.SIZ) / 2)), 'MP: ' + auto(dv('MP'), T.POW),
+      'SAN（参照用）: ' + sanCur, 'SAN最大（参照用）: ' + sanMax, 'SAN補正: ' + (sanCur - sanBase),
+      'ダメージボーナス: ' + (dbIn === '' || dbIn === dbAuto ? dbAuto + ' @自動' : dbIn),
+      'アイデア: ' + auto(dv('IDE'), T.INT * 5), '幸運: ' + auto(dv('幸運'), T.POW * 5), '知識: ' + auto(dv('知識'), Math.min(99, T.EDU * 5)), '');
+    jobBase = T.EDU * 20; hobbyBase = T.INT * 10;
+  }
 
   // --- ポイント ---
-  const jobBase = T.EDU * 20, hobbyBase = T.INT * 10;
   const jobTotal = d.jobTotal === null ? jobBase : d.jobTotal;
   const hobbyTotal = d.hobbyTotal === null ? hobbyBase : d.hobbyTotal;
-  L.push('【採用ルールとポイント】', '', '採用ルール: クトゥルフ2010', '職業ポイント計算式: EDU×20',
+  let jobFormula = is7 ? 'EDU×4' : 'EDU×20';
+  const hobbyFormula = is7 ? 'INT×2' : 'INT×10';
+  // 7版は職業ごとに計算式が違うので、総量が合う式を探す
+  if (is7 && jobTotal !== jobBase) {
+    const hit = ['STR', 'DEX', 'APP', 'POW'].find(k => T.EDU * 2 + T[k] * 2 === jobTotal);
+    if (hit) { jobFormula = 'EDU×2+' + hit + '×2'; jobBase = jobTotal; }
+  }
+  L.push('【採用ルールとポイント】', '', '採用ルール: ' + (is7 ? 'クトゥルフ2020' : 'クトゥルフ2010'), '職業ポイント計算式: ' + jobFormula,
     '職業ポイント補正: ' + (jobTotal - jobBase), '職業ポイント総量（参照用）: ' + jobTotal,
     '興味ポイント補正: ' + (hobbyTotal - hobbyBase), '興味ポイント総量（参照用）: ' + hobbyTotal, '');
-  if (jobTotal !== jobBase) notes.push('職業ポイントの総量が EDU×20 と違うので、差分（' + (jobTotal - jobBase) + '）を「職業ポイント補正」に入れました。');
-  if (hobbyTotal !== hobbyBase) notes.push('興味ポイントの総量が INT×10 と違うので、差分（' + (hobbyTotal - hobbyBase) + '）を「興味ポイント補正」に入れました。');
+  if (jobTotal !== jobBase) notes.push('職業ポイントの総量が ' + jobFormula + ' と違うので、差分（' + (jobTotal - jobBase) + '）を「職業ポイント補正」に入れました。');
+  if (hobbyTotal !== hobbyBase) notes.push('興味ポイントの総量が ' + hobbyFormula + ' と違うので、差分（' + (hobbyTotal - hobbyBase) + '）を「興味ポイント補正」に入れました。');
 
   // --- 技能 ---
-  const defOf = (def) => def === 'DEX2' ? T.DEX * 2 : def === 'EDU5' ? Math.min(99, T.EDU * 5) : def;
-  const pool = d.skills.map(s => ({ ...s, ...splitSkillName(s.raw), used: false }));
+  const calcDef = (def) => def === 'DEX2' ? T.DEX * 2 : def === 'DEXH' ? Math.floor(T.DEX / 2)
+    : def === 'EDU5' ? Math.min(99, T.EDU * 5) : def === 'EDU' ? T.EDU : def;
+  const pool = d.skills.map(s => ({ ...s, ...splitSkillName(s.raw, ed), used: false }));
   const custom = [];
   L.push('【技能】', '');
-  for (const [cat, list] of SKILLS) {
+  for (const [cat, rows] of ed.rows) {
     L.push('［' + cat + '］', '', '| 技能名 | 初期値 | 職業P | 興味P | 成長分 | その他 | 合計（参照用） |');
-    for (const [name, def] of list) {
-      const dflt = defOf(def);
-      const s = pool.find(x => !x.used && x.base === name);
-      if (!s) { L.push(`| ${name} | ${dflt} @自動 | 0 | 0 | 0 | 0 | ${dflt} |`); continue; }
-      s.used = true;
-      const label = s.spec ? `${name}（${s.spec}）` : name;
-      const init = s.init === dflt ? `${s.init} @自動` : String(s.init);
-      if (s.init !== dflt) notes.push(`「${label}」の初期値がキャラッシュの標準（${dflt}）と違うので、手入力の値（${s.init}）として出力しました。`);
-      L.push(`| ${label} | ${init} | ${s.job} | ${s.hobby} | ${s.grow} | ${s.other} | ${s.total} |`);
+    for (const row of rows) {
+      const matches = pool.filter(x => !x.used && x.base === row.base);
+      if (!matches.length) { const v = calcDef(row.def); L.push(`| ${row.name} | ${v} @自動 | 0 | 0 | 0 | 0 | ${v} |`); continue; }
+      // 同じ技能に専門が複数あるとき（芸術/製作の料理と演劇など）は、すべて行にする
+      for (const s of matches) {
+        s.used = true;
+        const spec = s.spec || row.spec;
+        const label = spec ? `${row.base}（${spec}）` : row.base;
+        const bySpec = ed.specInit[row.base];
+        let dflt = calcDef(row.def);
+        if (bySpec && spec && spec !== row.spec) dflt = (spec in bySpec) ? bySpec[spec] : null;
+        const init = s.init === dflt ? `${s.init} @自動` : String(s.init);
+        if (dflt !== null && s.init !== dflt) notes.push(`「${label}」の初期値がキャラッシュの標準（${dflt}）と違うので、手入力の値（${s.init}）として出力しました。`);
+        L.push(`| ${label} | ${init} | ${s.job} | ${s.hobby} | ${s.grow} | ${s.other} | ${s.total} |`);
+      }
     }
-    // 標準の枠に収まらなかった技能は独自技能にする
+    // 標準の技能に当てはまらないものは独自技能にする
     for (const s of pool.filter(x => !x.used && x.cat === cat)) {
       s.used = true;
-      const label = s.base ? (s.spec ? `${s.base}（${s.spec}）` : s.base) : s.raw;
-      custom.push(label);
-      L.push(`| 独自技能：${label.replace(/\|/g, '／')} | ${s.init} | ${s.job} | ${s.hobby} | ${s.grow} | ${s.other} | ${s.total} |`);
+      custom.push(s.raw);
+      L.push(`| 独自技能：${s.raw.replace(/\|/g, '／')} | ${s.init} | ${s.job} | ${s.hobby} | ${s.grow} | ${s.other} | ${s.total} |`);
     }
     L.push('');
   }
   const orphan = pool.filter(x => !x.used);
   if (orphan.length) notes.push('分類が読み取れず出力できなかった技能: ' + orphan.map(x => x.raw).join('、'));
-  if (custom.length) notes.push('標準の技能欄に入らないので独自技能として出力しました: ' + custom.join('、') + '。');
+  if (custom.length) notes.push('標準の技能に当てはまらないので独自技能として出力しました: ' + custom.join('、') + '。');
   if (!d.skills.length) notes.push('技能が1件も読み取れませんでした。テキストが途中で切れていないか確認してください。');
 
-  L.push('【作成の記録】', '', kv('作成時年齢', ageNum), '年齢修正の状態: 未処理', '',
-    '【武器】', '', '| 名称 | 個数 | 備考 | ダメージ | 故障NO | 射程 | 攻撃回数 | 装弾数 | 耐久力 |', '',
+  // --- 残りの欄 ---
+  L.push('【作成の記録】', '');
+  if (is7) L.push('作成方式: 通常作成');
+  L.push(kv('作成時年齢', ageNum), '年齢修正の状態: 未処理', '');
+  if (is7) {
+    L.push('【バックストーリー】', '');
+    for (const bs of backstory.blocks) L.push(...fence((bs.star ? '★ ' : '') + BACKSTORY7[bs.key], bs.body));
+  }
+  L.push('【武器】', '', '| 名称 | 個数 | 備考 | ダメージ | 故障NO | 射程 | 攻撃回数 | 装弾数 | 耐久力 |', '',
     '【システム別の所持品】', '', '| 名前 | 個数 | 備考 |', '',
     '【システム別の経験の記録】', '', '書物・文献:', '術・呪文:', 'アーティファクト:', '負傷・傷痕など:', '心の傷:', '遭遇した存在:', '',
     '【システム別メモ】', '', '---', '【チャットパレット（編集保存分）】', '', '---', '');
 
-  if (d.icon) notes.push('アイコン画像は移行されません。URLは共通メモ「いあきゃらからの引き継ぎ」に書いてあります。');
-  return { name: d.name || '名前なし', text: L.join('\n'), notes };
+  if (d.icons.length) notes.push('アイコン画像は移行されません。URLは共通メモ「いあきゃらからの引き継ぎ」に書いてあります。');
+  return { name: d.name || '名前なし', edition: ed.label, text: L.join('\n'), notes };
 }
 
 if (typeof module !== 'undefined') module.exports = { convert, parseIachara };
@@ -409,7 +588,7 @@ if (typeof document !== 'undefined') {
       row.appendChild(nm);
       try {
         const r = convert(texts[i]); batch.push(r);
-        nm.textContent = r.name + (r.notes.length ? '（注意 ' + r.notes.length + ' 件）' : '');
+        nm.textContent = r.name + '（' + r.edition + '）' + (r.notes.length ? '（注意 ' + r.notes.length + ' 件）' : '');
         const st = document.createElement('span'); st.className = 'hint';
         const show = document.createElement('button'); show.textContent = '表示';
         show.onclick = () => { inEl.value = texts[i]; run(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
