@@ -43,12 +43,6 @@
   .files { margin-top: 16px; }
   .file { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); font-size: .9rem; }
   .file .name { flex: 1 1 200px; }
-  .color { margin-top: 12px; }
-  .color label { display: block; font-size: .86rem; font-weight: 600; margin-bottom: 4px; }
-  .color .row { margin-top: 0; flex-wrap: nowrap; }
-  .color input { flex: 1 1 auto; min-width: 0; font: inherit; font-size: .86rem; padding: 7px 10px; border-radius: 8px;
-    border: 1px solid var(--line); background: var(--bg); color: var(--text); }
-  #swatch { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); }
   ol.steps { margin: 16px 0 0; padding-left: 1.3em; font-size: .9rem; color: var(--muted); }
   a { color: var(--accent); }
 </style>
@@ -66,14 +60,6 @@
         <label class="filebtn">ファイルを選ぶ<input id="file" type="file" accept=".txt,text/plain" multiple hidden></label>
         <button id="clear">クリア</button>
       </div>
-      <div class="color">
-        <label for="color">イメージカラー（任意）</label>
-        <div class="row">
-          <input id="color" type="text" spellcheck="false" autocomplete="off" placeholder="#9b42c0 か、いあきゃらの「ココフォリア駒出力」をそのまま貼る">
-          <span id="swatch" title="読み取った色"></span>
-        </div>
-        <div id="colorhint" class="hint">いあきゃらのテキスト出力には色が入っていないので、移したいときはここに入れます。</div>
-      </div>
     </section>
     <section class="panel">
       <h2>2. キャラッシュ用テキスト</h2>
@@ -90,14 +76,13 @@
 
   <section id="files" class="files panel" hidden>
     <h2>複数ファイルの変換結果</h2>
-    <div class="row"><button id="saveall">すべて保存</button><span class="hint">保存した .txt は、キャラッシュのインポート欄にまとめてドロップできます。イメージカラーは上に表示中の1件にだけ入ります。</span></div>
+    <div class="row"><button id="saveall">すべて保存</button><span class="hint">保存した .txt は、キャラッシュのインポート欄にまとめてドロップできます。</span></div>
     <div id="filelist"></div>
   </section>
 
   <ol class="steps">
     <li>いあきゃらのマイページで「キャラ出力」→「ファイルに出力」→「テキスト出力」。</li>
     <li>出てきたテキストを左に貼る（またはファイルをドロップ）。</li>
-    <li>色も移すなら、同じ「キャラ出力」の「ココフォリア駒出力」を押し、「イメージカラー」欄に貼る（色コードを直接書いてもよい）。</li>
     <li>右の結果をコピーして、<a href="https://charash.jp/" target="_blank" rel="noopener">キャラッシュ</a>の「＋新規作成」→「貼り付け」欄に貼り、「インポート」を押す。</li>
     <li>アイコン画像は移らないので、キャラッシュ側で設定する。</li>
   </ol>
@@ -253,28 +238,7 @@ function memoBlock(title, body) {
   return ['---', '【' + title + '】', safe, '---', ''];
 }
 
-// 「#9b42c0」「9b42c0」「#abc」か、ココフォリア駒のJSON（data.color）から色を取り出す
-function parseColor(input) {
-  const s = String(input || '').trim();
-  if (!s) return { color: '', name: '' };
-  let hex = s, name = '';
-  if (s[0] === '{') {
-    try {
-      const j = JSON.parse(s);
-      const data = j && j.data ? j.data : j;
-      hex = String((data && data.color) || '');
-      name = String((data && data.name) || '');
-    } catch (e) { return { color: null, name: '' }; }
-  }
-  const m = hex.trim().match(/^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/);
-  if (!m) return { color: null, name };
-  let h = m[1];
-  if (h.length === 3) h = h.split('').map(c => c + c).join('');
-  return { color: '#' + h.toUpperCase(), name };
-}
-
-function convert(text, opts) {
-  const color = (opts && opts.color) || '';
+function convert(text) {
   const d = parseIachara(text);
   const notes = [];
   const kv = (k, v) => (v === undefined || v === null || v === '') ? k + ':' : k + ': ' + v;
@@ -298,7 +262,7 @@ function convert(text, opts) {
   const L = [];
   L.push('キャラッシュテキスト v2', 'キャラクターID:', '', '【共通情報】', '', '【基本情報】', '',
     kv('名前', d.name), kv('なまえ（かな）', d.kana), kv('職業', b['職業']), kv('年齢', b['年齢']), kv('性別', b['性別']),
-    kv('出身', b['出身']), 'ロスト: いいえ', kv('イメージカラー', color), '年齢の自動算出: いいえ', kv('年齢（参照用）', ageNum), kv('誕生日', birthday), '',
+    kv('出身', b['出身']), 'ロスト: いいえ', 'イメージカラー:', '年齢の自動算出: いいえ', kv('年齢（参照用）', ageNum), kv('誕生日', birthday), '',
     '外見的特徴:', '性格:', '経歴:', '関係ある人々:', '好きなもの・嫌いなもの:', '',
     kv('身長', b['身長']), kv('体重', b['体重']), 'MBTI:', '血液型:', kv('髪の色', b['髪の色']), kv('瞳の色', b['瞳の色']),
     '一人称:', '二人称:', '口調:', 'セリフ:', '趣味:', 'イメージソング:', '名前の由来:', '');
@@ -391,7 +355,7 @@ function convert(text, opts) {
   return { name: d.name || '名前なし', text: L.join('\n'), notes };
 }
 
-if (typeof module !== 'undefined') module.exports = { convert, parseIachara, parseColor };
+if (typeof module !== 'undefined') module.exports = { convert, parseIachara };
 
 /* ===== 画面 ===== */
 if (typeof document !== 'undefined') {
@@ -407,19 +371,9 @@ if (typeof document !== 'undefined') {
   const run = () => {
     const src = inEl.value;
     $('status').textContent = '';
-    const c = parseColor($('color').value);
-    $('swatch').style.background = c.color || 'transparent';
-    const hint = $('colorhint');
-    hint.style.color = '';
-    if (c.color === null) { hint.textContent = '色を読み取れませんでした。#9b42c0 のような色コードか、ココフォリア駒出力を貼ってください。'; hint.style.color = 'var(--err-text)'; }
-    else if (c.color) hint.textContent = c.color + ' をイメージカラーに入れます。';
-    else hint.textContent = 'いあきゃらのテキスト出力には色が入っていないので、移したいときはここに入れます。';
     if (!src.trim()) { current = null; outEl.value = ''; showMsgs([]); $('copy').disabled = $('save').disabled = true; return; }
     try {
-      current = convert(src, { color: c.color || '' });
-      // ココフォリア駒の名前が別のキャラなら知らせる
-      const nameOnly = c.name.replace(/\s*[（(][^（()）]*[)）]\s*$/, '').trim();
-      if (c.color && nameOnly && nameOnly !== current.name) current.notes.unshift('イメージカラーの欄に貼ったココフォリア駒は「' + nameOnly + '」のものです。別のキャラの色でないか確認してください。');
+      current = convert(src);
       outEl.value = current.text;
       showMsgs(current.notes);
       $('copy').disabled = $('save').disabled = false;
@@ -471,8 +425,7 @@ if (typeof document !== 'undefined') {
   };
 
   inEl.addEventListener('input', run);
-  $('color').addEventListener('input', run);
-  $('clear').onclick = () => { inEl.value = ''; $('color').value = ''; batch = []; $('files').hidden = true; run(); };
+  $('clear').onclick = () => { inEl.value = ''; batch = []; $('files').hidden = true; run(); };
   $('copy').onclick = () => current && copy(current.text, $('status'));
   $('save').onclick = () => current && download(current.name, current.text);
   $('saveall').onclick = () => batch.forEach((r, i) => setTimeout(() => download(r.name, r.text), i * 300));
